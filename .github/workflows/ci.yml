@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t hello:${{ github.sha }} .
+
+      - name: Start a Kubernetes cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: ci
+
+      - name: Load the image into the cluster
+        run: kind load docker-image hello:${{ github.sha }} --name ci
+
+      - name: Deploy the app
+        run: |
+          kubectl apply -f k8s/
+          kubectl set image deployment/hello hello=hello:${{ github.sha }}
+          kubectl set env deployment/hello VERSION=${{ github.sha }}
+          kubectl rollout status deployment/hello --timeout=120s
+
+      - name: Test that it works
+        run: |
+          kubectl port-forward service/hello 8080:80 &
+          sleep 3
+          curl --fail http://localhost:8080
